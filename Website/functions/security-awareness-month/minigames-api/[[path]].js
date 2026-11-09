@@ -11,6 +11,7 @@
 // the free tier's 1,000 KV writes/day for the escape room.
 
 import { buildAdminSessionCookie, buildAdminSessionToken, clearAdminSessionCookie, getAdminAuthDebug, getTrustedAdminEmail, isAdminEmail, normalizeAdminEmail, verifyAdminLogin } from "../../_auth.js";
+import { getMinigamesConfig } from "../../_config.js";
 import { GAMES } from "../_minigames-key.js";
 
 const POINTS = { wrong: 25, hint: 100, missed: 100 };
@@ -24,7 +25,6 @@ const RUN_TTL_MS = 30 * 60 * 1000;
 const MAX_NEW_PLAYERS_PER_IP_HOUR = 10;
 const TOP = 10;
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,31}$/;
-const ADMIN_LOGIN_TTL_MS = 15 * 60 * 1000;
 
 const PERSON_NAME_PATTERN = /^[\p{L}][\p{L}' -]{0,39}$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -305,8 +305,10 @@ async function canEmailAdmin(email, env, db) {
 }
 
 async function sendAdminMagicLink(email, token, env, origin) {
-  const resendApiKey = String(env?.RESEND_API_KEY || "").trim();
-  const fromEmail = String(env?.SAM_MINIGAMES_EMAIL_FROM || env?.ADMIN_MAGICLINK_FROM || "").trim();
+  const config = getMinigamesConfig(env);
+  const resendApiKey = config.resendApiKey;
+  const fromEmail = config.emailFrom;
+  const ttlMinutes = Math.max(1, Math.round(config.adminLoginTtlMs / 60000));
   if (!resendApiKey || !fromEmail) return fail(503, "Email login is not configured on the server.");
   const link = `${origin}/admin/?login_token=${encodeURIComponent(token)}`;
   const response = await fetch("https://api.resend.com/emails", {
@@ -319,8 +321,8 @@ async function sendAdminMagicLink(email, token, env, origin) {
       from: fromEmail,
       to: [email],
       subject: "Your Security Awareness Month admin login link",
-      html: `<p>Use this one-time login link for Security Awareness Month admin access:</p><p><a href="${link}">${link}</a></p><p>The link expires in 15 minutes.</p>`,
-      text: `Use this one-time login link for Security Awareness Month admin access: ${link}\n\nThe link expires in 15 minutes.`,
+      html: `<p>Use this one-time login link for Security Awareness Month admin access:</p><p><a href="${link}">${link}</a></p><p>The link expires in ${ttlMinutes} minute${ttlMinutes === 1 ? "" : "s"}.</p>`,
+      text: `Use this one-time login link for Security Awareness Month admin access: ${link}\n\nThe link expires in ${ttlMinutes} minute${ttlMinutes === 1 ? "" : "s"}.`,
     }),
   });
   if (!response.ok) {
@@ -332,13 +334,14 @@ async function sendAdminMagicLink(email, token, env, origin) {
 }
 
 async function issueAdminMagicLink(email, env, db, origin) {
+  const config = getMinigamesConfig(env);
   const now = Date.now();
   const token = randomHex(24);
   const tokenHash = await sha256("sam-admin-login:" + token);
   await db.batch([
     db.prepare("DELETE FROM sam_mg_admin_login_tokens WHERE expires_at < ? OR used_at IS NOT NULL").bind(now),
     db.prepare("INSERT INTO sam_mg_admin_login_tokens (id, email, token_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, NULL)")
-      .bind(randomHex(12), email, tokenHash, now, now + ADMIN_LOGIN_TTL_MS),
+      .bind(randomHex(12), email, tokenHash, now, now + config.adminLoginTtlMs),
   ]);
   return await sendAdminMagicLink(email, token, env, origin);
 }

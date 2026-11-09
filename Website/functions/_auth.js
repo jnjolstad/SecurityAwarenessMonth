@@ -1,5 +1,6 @@
+import { getMinigamesConfig } from "./_config.js";
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DEFAULT_ADMIN_EMAILS = ["joar@njolstad.no"];
 const ADMIN_KEY_MIN_LEN = 24;
 const SESSION_COOKIE = "sam_admin_session";
 const SESSION_MAX_AGE = 60 * 60 * 8;
@@ -14,9 +15,8 @@ export function normalizeAdminEmail(value) {
 }
 
 function readConfiguredAdmins(env) {
-  const configured = String(
-    (env && env.SAM_MINIGAMES_ADMIN_EMAILS) || "",
-  );
+  const config = getMinigamesConfig(env);
+  const configured = config.adminEmailsRaw;
   const admins = new Set(
     configured
       .split(",")
@@ -24,7 +24,7 @@ function readConfiguredAdmins(env) {
       .filter(Boolean),
   );
   if (admins.size === 0) {
-    for (const email of DEFAULT_ADMIN_EMAILS) {
+    for (const email of config.defaultAdminEmails) {
       const clean = normalizeEmail(email);
       if (clean) admins.add(clean);
     }
@@ -80,21 +80,20 @@ async function hmacSha256(secret, text) {
 }
 
 function getSessionSecret(env) {
-  return String(env?.SAM_MINIGAMES_SESSION_SECRET || env?.SAM_MINIGAMES_ADMIN_KEY || "").trim();
+  return getMinigamesConfig(env).sessionSecret;
 }
 
 export function getAdminAuthDebug(env) {
-  const configuredRaw = String(
-    (env && env.SAM_MINIGAMES_ADMIN_EMAILS) || "",
-  );
+  const config = getMinigamesConfig(env);
+  const configuredRaw = config.adminEmailsRaw;
   const configuredAdmins = configuredRaw
     .split(",")
     .map((v) => normalizeEmail(v))
     .filter(Boolean);
-  const adminKey = String(env?.SAM_MINIGAMES_ADMIN_KEY || "").trim();
-  const sessionSecret = String(env?.SAM_MINIGAMES_SESSION_SECRET || "").trim();
-  const resendApiKey = String(env?.RESEND_API_KEY || "").trim();
-  const fromEmail = normalizeEmail(env?.SAM_MINIGAMES_EMAIL_FROM || env?.ADMIN_MAGICLINK_FROM || "");
+  const adminKey = config.adminKey;
+  const sessionSecret = config.sessionSecret;
+  const resendApiKey = config.resendApiKey;
+  const fromEmail = normalizeEmail(config.emailFrom);
   const checks = {
     adminEmailsConfigured: configuredAdmins.length > 0,
     usingDefaultAdminFallback: configuredAdmins.length === 0,
@@ -122,7 +121,7 @@ function extractBearerToken(authHeader) {
 
 export function verifyAdminLogin(email, key, env) {
   const cleanEmail = normalizeEmail(email);
-  const configuredKey = String(env?.SAM_MINIGAMES_ADMIN_KEY || "").trim();
+  const configuredKey = getMinigamesConfig(env).adminKey;
   const providedKey = String(key || "").trim();
   if (!cleanEmail || !isAdminEmail(cleanEmail, env)) return false;
   if (configuredKey.length < ADMIN_KEY_MIN_LEN) return false;

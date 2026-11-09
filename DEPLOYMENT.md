@@ -18,12 +18,21 @@ The workflow now validates these up-front and fails with explicit errors if any 
 
 ## Admin security configuration (required for admin panel)
 
+All auth/runtime variables are now centralized in:
+
+- `Website/functions/_config.js`
+
+This is the single config module used by both:
+- `Website/functions/_auth.js`
+- `Website/functions/security-awareness-month/minigames-api/[[path]].js`
+
 Configure Pages Function environment variables:
 
 - `SAM_MINIGAMES_ADMIN_EMAILS` (comma-separated allowed admin emails)
 - `SAM_MINIGAMES_SESSION_SECRET` (strong random secret for signing admin session cookies)
 - `RESEND_API_KEY` (Resend API key used to send one-time admin login links)
 - `SAM_MINIGAMES_EMAIL_FROM` (verified sender, e.g. `Security Awareness <security@njolstad.no>`)
+- `SAM_MINIGAMES_ADMIN_LOGIN_TTL_MS` (optional; magic-link validity in ms, clamped to 1–60 minutes; default 900000)
 
 The admin page (`/admin`) now uses **email-only magic-link login**:
 
